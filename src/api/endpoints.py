@@ -41,40 +41,48 @@ async def create_message(request: ClaudeMessagesRequest, http_request: Request):
             raise HTTPException(status_code=499, detail="Client disconnected")
 
         if request.stream:
-            # Streaming response - wrap in error handling
-            try:
-                openai_stream = openai_client.create_chat_completion_stream(
-                    openai_request, request_id
-                )
-                return StreamingResponse(
-                    convert_openai_streaming_to_claude_with_cancellation(
+            # Streaming response - create safe wrapper generator
+            async def safe_streaming_response():
+                try:
+                    openai_stream = openai_client.create_chat_completion_stream(
+                        openai_request, request_id
+                    )
+                    async for chunk in convert_openai_streaming_to_claude_with_cancellation(
                         openai_stream,
                         request,
                         logger,
                         http_request,
                         openai_client,
                         request_id,
-                    ),
-                    media_type="text/event-stream",
-                    headers={
-                        "Cache-Control": "no-cache",
-                        "Connection": "keep-alive",
-                        "Access-Control-Allow-Origin": "*",
-                        "Access-Control-Allow-Headers": "*",
-                    },
-                )
-            except HTTPException as e:
-                # Convert to proper error response for streaming
-                logger.error(f"Streaming error: {e.detail}")
-                import traceback
-
-                logger.error(traceback.format_exc())
-                error_message = openai_client.classify_openai_error(e.detail)
-                error_response = {
-                    "type": "error",
-                    "error": {"type": "api_error", "message": error_message},
-                }
-                return JSONResponse(status_code=e.status_code, content=error_response)
+                    ):
+                        yield chunk
+                except Exception as e:
+                    # Handle streaming errors gracefully by yielding an error event
+                    logger.error(f"Streaming error: {str(e)}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+                    
+                    error_message = openai_client.classify_openai_error(str(e))
+                    error_event = {
+                        "type": "error",
+                        "error": {
+                            "type": "api_error",
+                            "message": error_message
+                        }
+                    }
+                    import json
+                    yield f"event: error\ndata: {json.dumps(error_event, ensure_ascii=False)}\n\n"
+            
+            return StreamingResponse(
+                safe_streaming_response(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            )
         else:
             # Non-streaming response
             openai_response = await openai_client.create_chat_completion(
@@ -83,14 +91,17 @@ async def create_message(request: ClaudeMessagesRequest, http_request: Request):
             claude_response = convert_openai_to_claude_response(
                 openai_response, request
             )
-        # Check minimum tokens limit
-        if "usage" in claude_response and "output_tokens" in claude_response["usage"]:
-            output_tokens = claude_response["usage"]["output_tokens"]
-            if output_tokens < config.min_tokens_limit:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Output tokens ({output_tokens}) is less than minimum limit ({config.min_tokens_limit}))",
-                )
+            
+            # Check minimum tokens limit
+            if "usage" in claude_response and "output_tokens" in claude_response["usage"]:
+                output_tokens = claude_response["usage"]["output_tokens"]
+                if output_tokens < config.min_tokens_limit:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Output tokens ({output_tokens}) is less than minimum limit ({config.min_tokens_limit}))",
+                    )
+            
+            return claude_response
     except HTTPException:
         raise
     except Exception as e:

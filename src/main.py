@@ -1,10 +1,54 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse
 from src.api.endpoints import router as api_router
 import uvicorn
 import sys
+import logging
 from src.core.config import config
 
+# Setup basic logging
+logging.basicConfig(
+    level=getattr(logging, config.log_level.upper()),
+    format='%(asctime)s - %(levelname)s - %(message)s',
+)
+logger = logging.getLogger(__name__)
+
 app = FastAPI(title="Claude-to-OpenAI API Proxy", version="1.0.0")
+
+# Global exception handler for HTTPExceptions
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Handle HTTPExceptions with proper error response format."""
+    logger.error(f"HTTP Exception: {exc.status_code} - {exc.detail}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": {
+                "type": "http_error",
+                "status_code": exc.status_code,
+                "message": exc.detail
+            }
+        }
+    )
+
+# Global exception handler for unhandled exceptions
+@app.exception_handler(Exception) 
+async def general_exception_handler(request: Request, exc: Exception):
+    """Handle all other unhandled exceptions."""
+    logger.error(f"Unhandled exception: {type(exc).__name__}: {str(exc)}")
+    import traceback
+    logger.error(traceback.format_exc())
+    
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": {
+                "type": "internal_error",
+                "status_code": 500,
+                "message": "Internal server error occurred"
+            }
+        }
+    )
 
 app.include_router(api_router)
 

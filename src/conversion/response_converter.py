@@ -254,6 +254,27 @@ async def convert_openai_streaming_to_claude_with_cancellation(
 
                     try:
                         chunk = json.loads(chunk_data)
+                        
+                        # Check for error data from the client
+                        if "error" in chunk:
+                            error_info = chunk["error"]
+                            error_type = error_info.get("type", "unknown_error")
+                            error_message = error_info.get("message", "Unknown error occurred")
+                            status_code = error_info.get("status_code", 500)
+                            
+                            logger.error(f"OpenAI API error: {error_type} - {error_message} (status: {status_code})")
+                            
+                            # Send error event in Claude format
+                            error_event = {
+                                "type": "error",
+                                "error": {
+                                    "type": error_type,
+                                    "message": error_message
+                                }
+                            }
+                            yield f"event: error\ndata: {json.dumps(error_event, ensure_ascii=False)}\n\n"
+                            return
+                        
                         choices = chunk.get("choices", [])
                         if not choices:
                             continue
