@@ -97,6 +97,10 @@ async def convert_openai_streaming_to_claude(
     tool_block_counter = 0
     current_tool_calls = {}
     final_stop_reason = Constants.STOP_END_TURN
+    
+    # Track token usage from OpenAI streaming response
+    total_input_tokens = 0
+    total_output_tokens = 0
 
     try:
         async for line in openai_stream:
@@ -111,6 +115,13 @@ async def convert_openai_streaming_to_claude(
                         choices = chunk.get("choices", [])
                         if not choices:
                             continue
+                            
+                        # Extract token usage information from chunk if available
+                        usage = chunk.get("usage", {})
+                        if usage:
+                            total_input_tokens = max(total_input_tokens, usage.get("prompt_tokens", 0))
+                            total_output_tokens = max(total_output_tokens, usage.get("completion_tokens", 0))
+                            
                     except json.JSONDecodeError as e:
                         logger.warning(
                             f"Failed to parse chunk: {chunk_data}, error: {e}"
@@ -208,7 +219,7 @@ async def convert_openai_streaming_to_claude(
         if tool_data.get("started") and tool_data.get("claude_index") is not None:
             yield f"event: {Constants.EVENT_CONTENT_BLOCK_STOP}\ndata: {json.dumps({'type': Constants.EVENT_CONTENT_BLOCK_STOP, 'index': tool_data['claude_index']}, ensure_ascii=False)}\n\n"
 
-    usage_data = {"input_tokens": 0, "output_tokens": 0}
+    usage_data = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens}
     yield f"event: {Constants.EVENT_MESSAGE_DELTA}\ndata: {json.dumps({'type': Constants.EVENT_MESSAGE_DELTA, 'delta': {'stop_reason': final_stop_reason, 'stop_sequence': None}, 'usage': usage_data}, ensure_ascii=False)}\n\n"
     yield f"event: {Constants.EVENT_MESSAGE_STOP}\ndata: {json.dumps({'type': Constants.EVENT_MESSAGE_STOP}, ensure_ascii=False)}\n\n"
 
@@ -237,6 +248,10 @@ async def convert_openai_streaming_to_claude_with_cancellation(
     tool_block_counter = 0
     current_tool_calls = {}
     final_stop_reason = Constants.STOP_END_TURN
+    
+    # Track token usage from OpenAI streaming response
+    total_input_tokens = 0
+    total_output_tokens = 0
 
     try:
         async for line in openai_stream:
@@ -278,6 +293,13 @@ async def convert_openai_streaming_to_claude_with_cancellation(
                         choices = chunk.get("choices", [])
                         if not choices:
                             continue
+                            
+                        # Extract token usage information from chunk if available
+                        usage = chunk.get("usage", {})
+                        if usage:
+                            total_input_tokens = max(total_input_tokens, usage.get("prompt_tokens", 0))
+                            total_output_tokens = max(total_output_tokens, usage.get("completion_tokens", 0))
+                            
                     except json.JSONDecodeError as e:
                         logger.warning(
                             f"Failed to parse chunk: {chunk_data}, error: {e}"
@@ -390,6 +412,6 @@ async def convert_openai_streaming_to_claude_with_cancellation(
         if tool_data.get("started") and tool_data.get("claude_index") is not None:
             yield f"event: {Constants.EVENT_CONTENT_BLOCK_STOP}\ndata: {json.dumps({'type': Constants.EVENT_CONTENT_BLOCK_STOP, 'index': tool_data['claude_index']}, ensure_ascii=False)}\n\n"
 
-    usage_data = {"input_tokens": 0, "output_tokens": 0}
+    usage_data = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens}
     yield f"event: {Constants.EVENT_MESSAGE_DELTA}\ndata: {json.dumps({'type': Constants.EVENT_MESSAGE_DELTA, 'delta': {'stop_reason': final_stop_reason, 'stop_sequence': None}, 'usage': usage_data}, ensure_ascii=False)}\n\n"
     yield f"event: {Constants.EVENT_MESSAGE_STOP}\ndata: {json.dumps({'type': Constants.EVENT_MESSAGE_STOP}, ensure_ascii=False)}\n\n"

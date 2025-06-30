@@ -84,6 +84,11 @@ def convert_claude_to_openai(
         "temperature": claude_request.temperature,
         "stream": claude_request.stream,
     }
+    
+    # Add stream_options to get usage information in streaming mode
+    if claude_request.stream:
+        openai_request["stream_options"] = {"include_usage": True}
+    
     logger.debug(
         f"Converted Claude request to OpenAI format: {json.dumps(openai_request, indent=2, ensure_ascii=False)}"
     )
