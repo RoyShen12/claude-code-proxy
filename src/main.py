@@ -32,13 +32,13 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     )
 
 # Global exception handler for unhandled exceptions
-@app.exception_handler(Exception) 
+@app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
     """Handle all other unhandled exceptions."""
     logger.error(f"Unhandled exception: {type(exc).__name__}: {str(exc)}")
     import traceback
     logger.error(traceback.format_exc())
-    
+
     return JSONResponse(
         status_code=500,
         content={
@@ -73,6 +73,7 @@ def main():
         print(f"  LOG_LEVEL - Logging level (default: WARNING)")
         print(f"  MAX_TOKENS_LIMIT - Token limit (default: 4096)")
         print(f"  MIN_TOKENS_LIMIT - Minimum token limit (default: 100)")
+        print(f"  DEFAULT_MAX_TOKENS - Default max_tokens for requests (default: 1024)")
         print(f"  REQUEST_TIMEOUT - Request timeout in seconds (default: 90)")
         print("")
         print("Model mapping:")
@@ -87,6 +88,7 @@ def main():
     print(f"   Big Model (sonnet/opus): {config.big_model}")
     print(f"   Small Model (haiku): {config.small_model}")
     print(f"   Max Tokens Limit: {config.max_tokens_limit}")
+    print(f"   Default Max Tokens: {config.default_max_tokens}")
     print(f"   Request Timeout: {config.request_timeout}s")
     print(f"   Server: {config.host}:{config.port}")
     print("")

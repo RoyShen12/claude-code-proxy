@@ -75,7 +75,34 @@ ANTHROPIC_BASE_URL=http://localhost:8082 claude
 **Performance:**
 
 - `MAX_TOKENS_LIMIT` - Token limit (default: `4096`)
+- `MIN_TOKENS_LIMIT` - Minimum token limit (default: `100`)
+- `DEFAULT_MAX_TOKENS` - Default max_tokens for requests (default: `1024`)
 - `REQUEST_TIMEOUT` - Request timeout in seconds (default: `90`)
+
+### Default Max Tokens Feature
+
+The `DEFAULT_MAX_TOKENS` setting provides a fallback value when client requests have invalid or very small `max_tokens` values:
+
+- **When Applied**: Used when client sends `max_tokens` ≤ 0 or below `MIN_TOKENS_LIMIT`
+- **Example**: If client sends `max_tokens: 0`, proxy will use `DEFAULT_MAX_TOKENS` value instead
+- **Benefit**: Prevents API errors and ensures reasonable response lengths
+- **Configurable**: Set via environment variable or .env file
+
+```json
+// Client request with invalid max_tokens
+{
+  "model": "claude-3-haiku",
+  "messages": [{"role": "user", "content": "Hello"}],
+  "max_tokens": 0
+}
+
+// Converted to downstream API with default value
+{
+  "model": "gpt-4o-mini",
+  "messages": [{"role": "user", "content": "Hello"}],
+  "max_tokens": 1024
+}
+```
 
 ### Model Mapping
 

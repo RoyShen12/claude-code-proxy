@@ -74,24 +74,31 @@ def convert_claude_to_openai(
         i += 1
 
     # Build OpenAI request
+    # Use provided max_tokens, but apply default if not reasonable or too small
+    requested_max_tokens = claude_request.max_tokens
+    if requested_max_tokens <= 0 or requested_max_tokens < config.min_tokens_limit:
+        # Use default max_tokens from config if the request value is too small or invalid
+        effective_max_tokens = config.default_max_tokens
+        logger.debug(f"Using default max_tokens {effective_max_tokens} (requested: {requested_max_tokens})")
+    else:
+        effective_max_tokens = requested_max_tokens
+
     openai_request = {
         "model": openai_model,
         "messages": openai_messages,
         "max_tokens": min(
-            max(claude_request.max_tokens, config.min_tokens_limit),
+            max(effective_max_tokens, config.min_tokens_limit),
             config.max_tokens_limit,
         ),
         "temperature": claude_request.temperature,
         "stream": claude_request.stream,
     }
-    
+
     # Add stream_options to get usage information in streaming mode
     if claude_request.stream:
         openai_request["stream_options"] = {"include_usage": True}
-    
-    logger.debug(
-        f"Converted Claude request to OpenAI format: {json.dumps(openai_request, indent=2, ensure_ascii=False)}"
-    )
+        logger.debug("Added stream_options with include_usage=True for streaming request")
+
     # Add optional parameters
     if claude_request.stop_sequences:
         openai_request["stop"] = claude_request.stop_sequences
