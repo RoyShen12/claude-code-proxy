@@ -78,6 +78,23 @@ ANTHROPIC_BASE_URL=http://localhost:8082 claude
 - `MIN_TOKENS_LIMIT` - Minimum token limit (default: `100`)
 - `DEFAULT_MAX_TOKENS` - Default max_tokens for requests (default: `1024`)
 - `REQUEST_TIMEOUT` - Request timeout in seconds (default: `90`)
+- `ENABLE_TOKEN_ESTIMATION` - Enable token estimation when downstream APIs don't provide usage data (default: `true`)
+
+### Token Estimation Feature
+
+When downstream APIs (like some models from Doubao/ByteDance) don't provide accurate token usage information, the proxy can automatically estimate token counts:
+
+- **When Used**: Automatically triggered when downstream API returns zero or missing token usage data
+- **Languages Supported**: Handles English, Chinese, and mixed-language text with different estimation ratios
+- **Scope**: Estimates both input tokens (from original request) and output tokens (from response content)
+- **Logging**: Estimated tokens are clearly marked in logs with "📊 Using estimated tokens..." prefix
+- **Configurable**: Can be disabled by setting `ENABLE_TOKEN_ESTIMATION=false`
+
+**Estimation Method:**
+- English text: ~4 characters per token
+- Chinese text: ~1.2 characters per token  
+- Mixed language text: ~2.5 characters per token
+- Includes overhead for message formatting and metadata
 
 ### Default Max Tokens Feature
 

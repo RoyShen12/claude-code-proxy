@@ -26,6 +26,8 @@ openai_client = OpenAIClient(
 @router.post("/v1/messages")
 async def create_message(request: ClaudeMessagesRequest, http_request: Request):
     try:
+        print(f"🔥 DEBUG: Request received - model={request.model}, stream={request.stream}", flush=True)
+        logger.info(f"📨 Received request: model={request.model}, stream={request.stream}, max_tokens={getattr(request, 'max_tokens', 'not_set')}")
         logger.debug(
             f"Processing Claude request: model={request.model}, stream={request.stream}"
         )

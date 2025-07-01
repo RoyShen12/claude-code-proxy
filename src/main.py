@@ -10,7 +10,10 @@ from src.core.config import config
 logging.basicConfig(
     level=getattr(logging, config.log_level.upper()),
     format='%(asctime)s - %(levelname)s - %(message)s',
+    force=True,  # 强制重新配置日志
 )
+# 确保立即刷新日志输出
+logging.getLogger().handlers[0].setLevel(getattr(logging, config.log_level.upper()))
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Claude-to-OpenAI API Proxy", version="1.0.0")
@@ -99,7 +102,8 @@ def main():
         host=config.host,
         port=config.port,
         log_level=config.log_level.lower(),
-        reload=True,
+        reload=False,  # 禁用reload以避免日志混乱
+        access_log=True,  # 启用访问日志
     )
 
 

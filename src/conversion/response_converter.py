@@ -3,6 +3,12 @@ import uuid
 import logging
 from fastapi import HTTPException, Request
 from src.core.constants import Constants
+from src.core.token_estimator import (
+    estimate_input_tokens, 
+    estimate_output_tokens, 
+    should_use_estimation
+)
+from src.core.config import config
 from src.models.claude import ClaudeMessagesRequest
 
 logger = logging.getLogger(__name__)
@@ -61,6 +67,30 @@ def convert_openai_to_claude_response(
         "function_call": Constants.STOP_TOOL_USE,
     }.get(finish_reason, Constants.STOP_END_TURN)
 
+    # Get usage data from OpenAI response
+    usage_data = openai_response.get("usage", {})
+    input_tokens = usage_data.get("prompt_tokens", 0)
+    output_tokens = usage_data.get("completion_tokens", 0)
+    
+    # Use token estimation if enabled and downstream API doesn't provide accurate usage
+    if config.enable_token_estimation and should_use_estimation(usage_data):
+        logger.debug("Downstream API usage data is incomplete, using token estimation")
+        
+        # Estimate input tokens from original request
+        estimated_input = estimate_input_tokens(original_request)
+        
+        # Estimate output tokens from response content
+        response_text = ""
+        for block in content_blocks:
+            if block.get("type") == Constants.CONTENT_TEXT:
+                response_text += block.get("text", "")
+        estimated_output = estimate_output_tokens(response_text)
+        
+        input_tokens = estimated_input
+        output_tokens = estimated_output
+        
+        logger.info(f"📊 Using estimated tokens - Input: {input_tokens}, Output: {output_tokens}")
+
     # Build Claude response
     claude_response = {
         "id": openai_response.get("id", f"msg_{uuid.uuid4()}"),
@@ -71,18 +101,16 @@ def convert_openai_to_claude_response(
         "stop_reason": stop_reason,
         "stop_sequence": None,
         "usage": {
-            "input_tokens": openai_response.get("usage", {}).get("prompt_tokens", 0),
-            "output_tokens": openai_response.get("usage", {}).get(
-                "completion_tokens", 0
-            ),
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
         },
     }
 
     # Log token usage info to console
     input_tokens = claude_response["usage"]["input_tokens"]
     output_tokens = claude_response["usage"]["output_tokens"]
-    if input_tokens > 0 or output_tokens > 0:
-        logger.info(f"🎯 Token Usage | Model: {original_request.model} → {openai_response.get('model', 'unknown')} | Input: {input_tokens} | Output: {output_tokens} | Total: {input_tokens + output_tokens}")
+    # Always log token usage for debugging, even if tokens are 0
+    logger.info(f"🎯 Token Usage | Model: {original_request.model} → {openai_response.get('model', 'unknown')} | Input: {input_tokens} | Output: {output_tokens} | Total: {input_tokens + output_tokens}")
 
     return claude_response
 
@@ -114,6 +142,9 @@ async def convert_openai_streaming_to_claude(
     try:
         async for line in openai_stream:
             if line.strip():
+                # Decode bytes to string if needed
+                if isinstance(line, bytes):
+                    line = line.decode('utf-8')
                 if line.startswith("data: "):
                     chunk_data = line[6:]
                     if chunk_data.strip() == "[DONE]":
@@ -233,12 +264,31 @@ async def convert_openai_streaming_to_claude(
         if tool_data.get("started") and tool_data.get("claude_index") is not None:
             yield f"event: {Constants.EVENT_CONTENT_BLOCK_STOP}\ndata: {json.dumps({'type': Constants.EVENT_CONTENT_BLOCK_STOP, 'index': tool_data['claude_index']}, ensure_ascii=False)}\n\n"
 
+    # Apply token estimation if enabled and usage data is incomplete
+    if config.enable_token_estimation and total_input_tokens == 0 and total_output_tokens == 0:
+        logger.debug("Downstream API usage data is incomplete, using token estimation for basic streaming")
+        
+        # Estimate input tokens from original request
+        estimated_input = estimate_input_tokens(original_request)
+        
+        # For streaming, we need to estimate output tokens from accumulated text
+        # Note: This is a rough estimate since we don't store all the streamed text
+        # We'll use a conservative estimate based on the request's max_tokens
+        max_tokens = getattr(original_request, 'max_tokens', 1024)
+        estimated_output = min(max_tokens // 4, 50)  # Conservative estimate: 1/4 of max_tokens or 50, whichever is smaller
+        
+        total_input_tokens = estimated_input
+        total_output_tokens = estimated_output
+        
+        logger.info(f"📊 Using estimated tokens for basic streaming - Input: {total_input_tokens}, Output: {total_output_tokens} (conservative estimate)")
+
     usage_data = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens}
     logger.debug(f"[Basic Stream] Final usage data: {usage_data}")
 
     # Log token usage info to console for streaming
-    if total_input_tokens > 0 or total_output_tokens > 0:
-        logger.info(f"🎯 Token Usage [Stream] | Model: {original_request.model} | Input: {total_input_tokens} | Output: {total_output_tokens} | Total: {total_input_tokens + total_output_tokens}")
+    # Always log token usage for debugging, even if tokens are 0
+    print(f"🔥 DEBUG: Stream Token Usage - Input: {total_input_tokens}, Output: {total_output_tokens}", flush=True)
+    logger.info(f"🎯 Token Usage [Stream] | Model: {original_request.model} | Input: {total_input_tokens} | Output: {total_output_tokens} | Total: {total_input_tokens + total_output_tokens}")
 
     yield f"event: {Constants.EVENT_MESSAGE_DELTA}\ndata: {json.dumps({'type': Constants.EVENT_MESSAGE_DELTA, 'delta': {'stop_reason': final_stop_reason, 'stop_sequence': None}, 'usage': usage_data}, ensure_ascii=False)}\n\n"
     yield f"event: {Constants.EVENT_MESSAGE_STOP}\ndata: {json.dumps({'type': Constants.EVENT_MESSAGE_STOP}, ensure_ascii=False)}\n\n"
@@ -282,6 +332,9 @@ async def convert_openai_streaming_to_claude_with_cancellation(
                 break
 
             if line.strip():
+                # Decode bytes to string if needed
+                if isinstance(line, bytes):
+                    line = line.decode('utf-8')
                 if line.startswith("data: "):
                     chunk_data = line[6:]
                     if chunk_data.strip() == "[DONE]":
@@ -437,12 +490,30 @@ async def convert_openai_streaming_to_claude_with_cancellation(
         if tool_data.get("started") and tool_data.get("claude_index") is not None:
             yield f"event: {Constants.EVENT_CONTENT_BLOCK_STOP}\ndata: {json.dumps({'type': Constants.EVENT_CONTENT_BLOCK_STOP, 'index': tool_data['claude_index']}, ensure_ascii=False)}\n\n"
 
+    # Apply token estimation if enabled and usage data is incomplete
+    if config.enable_token_estimation and total_input_tokens == 0 and total_output_tokens == 0:
+        logger.debug("Downstream API usage data is incomplete, using token estimation for streaming")
+        
+        # Estimate input tokens from original request
+        estimated_input = estimate_input_tokens(original_request)
+        
+        # For streaming, we need to estimate output tokens from accumulated text
+        # Note: This is a rough estimate since we don't store all the streamed text
+        # We'll use a conservative estimate based on the request's max_tokens
+        max_tokens = getattr(original_request, 'max_tokens', 1024)
+        estimated_output = min(max_tokens // 4, 50)  # Conservative estimate: 1/4 of max_tokens or 50, whichever is smaller
+        
+        total_input_tokens = estimated_input
+        total_output_tokens = estimated_output
+        
+        logger.info(f"📊 Using estimated tokens for streaming - Input: {total_input_tokens}, Output: {total_output_tokens} (conservative estimate)")
+
     usage_data = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens}
     logger.debug(f"[Cancellation Stream] Final usage data: {usage_data}")
 
     # Log token usage info to console for streaming with cancellation
-    if total_input_tokens > 0 or total_output_tokens > 0:
-        logger.info(f"🎯 Token Usage [Stream+Cancel] | Model: {original_request.model} | Input: {total_input_tokens} | Output: {total_output_tokens} | Total: {total_input_tokens + total_output_tokens}")
+    # Always log token usage for debugging, even if tokens are 0
+    logger.info(f"🎯 Token Usage [Stream+Cancel] | Model: {original_request.model} | Input: {total_input_tokens} | Output: {total_output_tokens} | Total: {total_input_tokens + total_output_tokens}")
 
     yield f"event: {Constants.EVENT_MESSAGE_DELTA}\ndata: {json.dumps({'type': Constants.EVENT_MESSAGE_DELTA, 'delta': {'stop_reason': final_stop_reason, 'stop_sequence': None}, 'usage': usage_data}, ensure_ascii=False)}\n\n"
     yield f"event: {Constants.EVENT_MESSAGE_STOP}\ndata: {json.dumps({'type': Constants.EVENT_MESSAGE_STOP}, ensure_ascii=False)}\n\n"
