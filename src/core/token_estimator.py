@@ -18,22 +18,46 @@ class TokenEstimator:
         self.CHINESE_CHAR_PER_TOKEN = 1.2  # 中文大约1.2个字符=1个token（中文token更复杂）
         self.MIXED_CHAR_PER_TOKEN = 2.5    # 中英混合文本的平均值
         
-    def estimate_text_tokens(self, text: str) -> int:
+    def estimate_text_tokens(self, text) -> int:
         """
         估算文本的token数量
         
         Args:
-            text: 要估算的文本
+            text: 要估算的文本，可以是字符串或包含text的对象列表
             
         Returns:
             估算的token数量
         """
         if not text:
             return 0
+        
+        # 处理不同类型的text参数
+        if isinstance(text, str):
+            text_content = text
+        elif isinstance(text, list):
+            # 如果是列表，提取所有text内容
+            text_content = ""
+            for item in text:
+                if isinstance(item, dict) and 'text' in item:
+                    text_content += item['text'] + " "
+                elif hasattr(item, 'text'):
+                    text_content += item.text + " "
+                elif isinstance(item, str):
+                    text_content += item + " "
+            text_content = text_content.strip()
+        else:
+            # 尝试获取text属性
+            if hasattr(text, 'text'):
+                text_content = text.text
+            else:
+                text_content = str(text)
+        
+        if not text_content:
+            return 0
             
         # 分析文本的中英文比例
-        chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', text))
-        total_chars = len(text)
+        chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', text_content))
+        total_chars = len(text_content)
         
         if total_chars == 0:
             return 0
