@@ -104,6 +104,25 @@ The `DEFAULT_MAX_TOKENS` setting provides a fallback value when client requests 
 }
 ```
 
+### Token Usage Logging
+
+The proxy automatically logs token usage information to the console when `LOG_LEVEL` is set to `INFO` or `DEBUG`:
+
+- **Non-streaming requests**: Logs after response completion
+- **Streaming requests**: Logs when final token counts are available
+- **Format**: `🎯 Token Usage | Model: source → target | Input: X | Output: Y | Total: Z`
+
+**Example Console Output:**
+```
+2025-01-01 10:30:15 - INFO - 🎯 Token Usage | Model: claude-3-haiku → gpt-4o-mini | Input: 15 | Output: 42 | Total: 57
+2025-01-01 10:30:20 - INFO - 🎯 Token Usage [Stream] | Model: claude-3-sonnet | Input: 23 | Output: 156 | Total: 179
+```
+
+**Configuration:**
+```bash
+LOG_LEVEL=INFO  # Set to INFO or DEBUG to see token usage logs
+```
+
 ### Model Mapping
 
 The proxy maps Claude model requests to your configured models:

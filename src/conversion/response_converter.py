@@ -1,8 +1,11 @@
 import json
 import uuid
+import logging
 from fastapi import HTTPException, Request
 from src.core.constants import Constants
 from src.models.claude import ClaudeMessagesRequest
+
+logger = logging.getLogger(__name__)
 
 
 def convert_openai_to_claude_response(
@@ -74,6 +77,12 @@ def convert_openai_to_claude_response(
             ),
         },
     }
+
+    # Log token usage info to console
+    input_tokens = claude_response["usage"]["input_tokens"]
+    output_tokens = claude_response["usage"]["output_tokens"]
+    if input_tokens > 0 or output_tokens > 0:
+        logger.info(f"🎯 Token Usage | Model: {original_request.model} → {openai_response.get('model', 'unknown')} | Input: {input_tokens} | Output: {output_tokens} | Total: {input_tokens + output_tokens}")
 
     return claude_response
 
@@ -226,6 +235,11 @@ async def convert_openai_streaming_to_claude(
 
     usage_data = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens}
     logger.debug(f"[Basic Stream] Final usage data: {usage_data}")
+
+    # Log token usage info to console for streaming
+    if total_input_tokens > 0 or total_output_tokens > 0:
+        logger.info(f"🎯 Token Usage [Stream] | Model: {original_request.model} | Input: {total_input_tokens} | Output: {total_output_tokens} | Total: {total_input_tokens + total_output_tokens}")
+
     yield f"event: {Constants.EVENT_MESSAGE_DELTA}\ndata: {json.dumps({'type': Constants.EVENT_MESSAGE_DELTA, 'delta': {'stop_reason': final_stop_reason, 'stop_sequence': None}, 'usage': usage_data}, ensure_ascii=False)}\n\n"
     yield f"event: {Constants.EVENT_MESSAGE_STOP}\ndata: {json.dumps({'type': Constants.EVENT_MESSAGE_STOP}, ensure_ascii=False)}\n\n"
 
@@ -425,5 +439,10 @@ async def convert_openai_streaming_to_claude_with_cancellation(
 
     usage_data = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens}
     logger.debug(f"[Cancellation Stream] Final usage data: {usage_data}")
+
+    # Log token usage info to console for streaming with cancellation
+    if total_input_tokens > 0 or total_output_tokens > 0:
+        logger.info(f"🎯 Token Usage [Stream+Cancel] | Model: {original_request.model} | Input: {total_input_tokens} | Output: {total_output_tokens} | Total: {total_input_tokens + total_output_tokens}")
+
     yield f"event: {Constants.EVENT_MESSAGE_DELTA}\ndata: {json.dumps({'type': Constants.EVENT_MESSAGE_DELTA, 'delta': {'stop_reason': final_stop_reason, 'stop_sequence': None}, 'usage': usage_data}, ensure_ascii=False)}\n\n"
     yield f"event: {Constants.EVENT_MESSAGE_STOP}\ndata: {json.dumps({'type': Constants.EVENT_MESSAGE_STOP}, ensure_ascii=False)}\n\n"
